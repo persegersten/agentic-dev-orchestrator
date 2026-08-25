@@ -1,10 +1,15 @@
 import { runCodex } from "../codex/runCodex.js";
-import { planSchema, type Plan } from "../validation/planSchema.js";
+import { PlanSchema, type Plan } from "./plan.js";
+
+export type PlannerResult = {
+  response: Plan;
+  threadId: string;
+};
 
 export async function planChange(
   issue: string,
   workspace: string,
-): Promise<Plan> {
+): Promise<PlannerResult> {
 
   const instruction = `
 You are a software change planner.
@@ -21,10 +26,9 @@ Return ONLY valid JSON using this structure:
 
 {
   "summary": "string",
-  "affectedComponents": ["string"],
-  "implementationSteps": ["string"],
-  "requiredTests": ["string"],
-  "risks": ["string"]
+  "files": ["string"],
+  "steps": ["string"],
+  "tests": ["string"]
 }
 `;
 
@@ -32,5 +36,8 @@ Return ONLY valid JSON using this structure:
 
   const parsedJson = JSON.parse(result.finalResponse);
 
-  return planSchema.parse(parsedJson);
+  return {
+    response: PlanSchema.parse(parsedJson),
+    threadId: result.threadId,
+  };
 }

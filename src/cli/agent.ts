@@ -4,8 +4,10 @@ import { resolve } from "node:path";
 import pino from "pino";
 import { z } from "zod";
 
-import { runCodex } from "../codex/runCodex.js";
-import { planChange } from "../workflow/planner.js";
+import { runCodex as runCodexReadOnly } from "../codex/runCodex.js";
+import { planChange, type PlannerResult } from "../workflow/planner.js";
+import { createTask, loadTask, saveTask } from "../workflow/task-store.js";
+import { transition } from "../workflow/task.js";
 
 const logger = pino({
   level: process.env.LOG_LEVEL ?? "info",
@@ -28,23 +30,94 @@ async function main(): Promise<void> {
     ),
   });
 
-  if (input.command === "plan") {
-    await runPlanner(input.arguments, input.workspace);
-    return;
+  switch (command) {
+  case "create":
+    await handleCreate(input.workspace, args);
+    break;
+
+  case "plan":
+    await handlePlan(input.workspace, args);
+    break;
+
+  default:
+    throw new Error(`Unknown command: ${command}`);
+
+  }
+}
+
+async function handleCreate(workspace: string, args: string[]) {
+  const instruction = args.join(" ");
+
+  if (!instruction) {
+    throw new Error("Instruction is required");
   }
 
-  await runGeneralAgent(
-    [input.command, ...input.arguments].join(" "),
-    input.workspace,
-  );
+  const task = await createTask(instruction);
+
+  console.log(`Task created: ${task.id}`);
+  console.log(`State: ${task.state}`);
+}
+
+async function handlePlan(workspace: string, args: string[]) {
+  const taskId = args[0];
+
+  if (!taskId) {
+    throw new Error("Task id is required");
+  }
+
+  let task = await loadTask(taskId);
+
+  if (task.state !== "RECEIVED") {
+    throw new Error(
+      `Task ${task.id} cannot be planned from state ${task.state}`
+    );
+  }
+
+  // 1. Markera att planning har startat
+  task = transition(task, "PLANNING");
+  await saveTask(task);
+
+  try {
+    // 2. Starta Codex-thread
+    // const thread = codex.startThread();
+
+    // 3. Be om en strukturerad plan
+
+    console.log(`Starting Codex thread for task: ${task.id}`);
+
+    const result = await runPlanner(task.instruction, workspace);
+
+    console.log(`Codex thread started: ${result.threadId}`);
+
+    // 4. Spara threadId + validerad plan
+    task = {
+      ...task,
+      threadId: result.threadId,
+      plan: result.response,
+    };
+
+    // 6. Planning är klar, invänta mänskligt godkännande
+    task = transition(task, "AWAITING_APPROVAL");
+
+    await saveTask(task);
+
+    console.log(`Task: ${task.id}`);
+    console.log(`State: ${task.state}`);
+    console.log(JSON.stringify(task.plan, null, 2));
+
+  } catch (error) {
+    // 7. Planning misslyckades
+    task = transition(task, "FAILED");
+    await saveTask(task);
+
+    throw error;
+  }
 }
 
 async function runPlanner(
-  args: string[],
+  issue: string,
   workspace: string,
-): Promise<void> {
-  const issue = args.join(" ").trim();
-
+): Promise<PlannerResult> {
   if (!issue) {
     throw new Error(
       'Planner kräver ett ärende, exempelvis: plan "Add reverse movement to vehicles"',
@@ -59,7 +132,7 @@ async function runPlanner(
     "Planner started",
   );
 
-  const plan = await planChange(issue, workspace);
+  const result = await planChange(issue, workspace);
 
   logger.info(
     {
@@ -72,9 +145,11 @@ async function runPlanner(
   console.log();
   console.log("----- Planner result -----");
   console.log();
-  console.log(JSON.stringify(plan, null, 2));
+  console.log(JSON.stringify(result.response, null, 2));
   console.log();
   console.log("--------------------------");
+
+  return result;
 }
 
 async function runGeneralAgent(
@@ -97,7 +172,7 @@ async function runGeneralAgent(
   );
 
   try {
-    const result = await runCodex(
+    const result = await runCodexReadOnly(
       instruction,
       workspace,
     );
