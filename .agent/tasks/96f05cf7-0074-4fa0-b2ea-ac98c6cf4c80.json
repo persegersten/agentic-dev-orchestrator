@@ -1,0 +1,34 @@
+{
+  "id": "96f05cf7-0074-4fa0-b2ea-ac98c6cf4c80",
+  "instruction": "Add reverse movement to vehicles",
+  "state": "FAILED",
+  "createdAt": "2026-09-02T15:04:31.749Z",
+  "updatedAt": "2026-09-02T15:06:49.894Z",
+  "threadId": "01a062a6-dfb3-7ae3-920b-1d569f6fe456",
+  "plan": {
+    "summary": "Add a REVERSE movement order that moves a vehicle one grid cell opposite its current orientation without changing that orientation, while reusing the existing boundary and simultaneous-collision rules.",
+    "files": [
+      "backend/src/main/java/se/segersten/wreckage/game/domain/MovementOrder.java",
+      "backend/src/main/java/se/segersten/wreckage/game/domain/Position.java",
+      "backend/src/main/java/se/segersten/wreckage/game/engine/MovementEngine.java",
+      "backend/src/test/java/se/segersten/wreckage/game/engine/MovementEngineTest.java",
+      "docs/game-rules.md"
+    ],
+    "steps": [
+      "Add REVERSE to the supported MovementOrder values.",
+      "Add a position operation that calculates the adjacent cell opposite a supplied orientation.",
+      "Handle REVERSE when MovementEngine determines vehicle intentions, preserving orientation and allowing the existing board validation and conflict-resolution phases to block invalid reverse movements.",
+      "Document reverse vectors, unchanged orientation, board-boundary behavior, and applicability of the existing collision rules; remove reverse movement from the out-of-scope list."
+    ],
+    "tests": [
+      "Add movement-engine coverage showing reverse movement for NORTH, EAST, SOUTH, and WEST orientations and verifying orientation remains unchanged.",
+      "Verify reverse movement is blocked when its target lies outside the board.",
+      "Verify reverse orders participate in existing collision behavior, including occupied targets, shared targets, swaps, and movement into successfully vacated cells.",
+      "Run the backend test suite with ./mvnw test from the backend directory."
+    ]
+  },
+  "validation": {
+    "success": false,
+    "output": ""
+  }
+}

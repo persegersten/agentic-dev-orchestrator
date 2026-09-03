@@ -31,3 +31,29 @@ export async function runCodex(
     usage: result.usage,
   };
 }
+
+export async function runResumedCodex(
+  threadId: string,
+  instruction: string,
+  workspace: string,
+): Promise<CodexRunResult> {
+
+
+  const codex = new Codex();
+
+  const thread = codex.resumeThread(threadId, {
+    workingDirectory: workspace,
+    sandboxMode: "workspace-write",
+    approvalPolicy: "never",
+  });
+
+  
+
+  const result = await thread.run(instruction);
+
+  return {
+    finalResponse: result.finalResponse,
+    threadId: thread.id,
+    usage: result.usage,
+  };
+}

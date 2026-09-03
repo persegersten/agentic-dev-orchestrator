@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 
@@ -42,4 +42,10 @@ export async function loadTask(id: string): Promise<Task> {
   const json = await readFile(file, "utf-8");
 
   return JSON.parse(json) as Task;
+}
+
+export async function deleteTask(task: Task): Promise<void> {
+  const file = path.join(TASK_DIR, `${task.id}.json`);
+
+  await unlink(file);
 }

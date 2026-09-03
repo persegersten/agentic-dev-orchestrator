@@ -1,4 +1,5 @@
 import type { Plan } from "./plan.js";
+import { ValidationResult } from "./validator.js";
 import type { WorkflowState } from "./workflow-state.js";
 import { allowedTransitions } from "./workflow-state.js";
 
@@ -9,6 +10,8 @@ export interface Task {
 
   threadId?: string;
   plan?: Plan;
+
+  validation?: ValidationResult;
 
   createdAt: string;
   updatedAt: string;
