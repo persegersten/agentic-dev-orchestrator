@@ -2,3 +2,5 @@ node_modules/
 dist/
 .agent-runs/
 .env
+.agent/
+.agent-runs/
