@@ -36,6 +36,10 @@ Approved plan:
 ${JSON.stringify(task.plan, null, 2)}
 
 Requirements:
+- The persisted approved plan above is authoritative.
+- Work on the already checked-out task branch: ${task.branchName}.
+- Do not create or switch branches, commit, push, or create pull requests.
+- The orchestrator owns all Git and GitHub lifecycle operations.
 - Follow the approved plan.
 - Keep changes within the scope of the plan.
 - Modify the repository as needed to implement the plan.

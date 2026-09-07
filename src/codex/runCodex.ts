@@ -51,6 +51,10 @@ export async function runResumedCodex(
 
   const result = await thread.run(instruction);
 
+  if (!thread.id) {
+    throw new Error("Codex returned no thread ID.");
+  }
+
   return {
     finalResponse: result.finalResponse,
     threadId: thread.id,

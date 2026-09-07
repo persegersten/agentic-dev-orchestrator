@@ -8,8 +8,7 @@ import { runCodex as runCodexReadOnly } from "../codex/runCodex.js";
 import { planChange, type PlannerResult } from "../workflow/planner.js";
 import { createTask, loadTask, saveTask, deleteTask } from "../workflow/task-store.js";
 import { transition } from "../workflow/task.js";
-import { runImplementer } from "../workflow/implementer.js";
-import { validateWorkspace } from "../workflow/validator.js";
+import { executeApprovedTask } from "../workflow/execute-task.js";
 
 const logger = pino({
   level: process.env.LOG_LEVEL ?? "info",
@@ -50,8 +49,7 @@ async function main(): Promise<void> {
     break;
     
   case "implement":
-    await implementPlan(input.workspace, args);
-    break;
+    throw new Error("Use approve <task-id> to explicitly approve and execute the complete task lifecycle.");
 
   default:
     throw new Error(`Unknown command: ${command}`);
@@ -72,66 +70,6 @@ async function handleCreate(workspace: string, args: string[]) {
   console.log(`State: ${task.state}`);
 }
 
-async function implementPlan(workspace: string, args: string[]) {
-  const taskId = args[0];
-
-  if (!taskId) {
-    throw new Error("Task id is required");
-  }
-
-  let task = await loadTask(taskId);
-
-  if (task.state !== "IMPLEMENTING") {
-    throw new Error(
-      `Task ${task.id} cannot be implemented from state ${task.state}`
-    );
-  }
-
-  console.log(`Implementing task: ${task.id}`);
-  console.log(`State: ${task.state}`);
-  console.log(JSON.stringify(task.plan, null, 2));
-
-  try {
-    console.log(`Starting Codex thread for task: ${task.id}`);
-
-    const result = await runImplementer(task, workspace);
-
-      // VALIDATING
-    task = transition(task, "VALIDATING");
-    await saveTask(task);
-
-   const validation =
-     await validateWorkspace(workspace);
-
-    task = {
-      ...task,
-      validation,
-    };
-
-    // COMPLETED / FAILED
-    task = transition(
-     task,
-       validation.success ? "COMPLETED" : "FAILED"
-    );
-
-    await saveTask(task);
-
-    // console.log(`Validation output: ${JSON.stringify(validation.output)}`);
-    console.log(`Validation: ${
-      validation.success ? "PASSED" : "FAILED"
-   }`);
-    
-    console.log(`Task completed: ${task.id}`);
-    console.log(`State: ${task.state}`);
-   } catch (error) {
-    // 7. Implementation misslyckades
-    task = transition(task, "FAILED");
-    await saveTask(task);
-
-    throw error;
-  }
-}
-
 async function deletePlan(workspace: string, args: string[]) {
   const taskId = args[0];
 
@@ -139,7 +77,7 @@ async function deletePlan(workspace: string, args: string[]) {
     throw new Error("Task id is required");
   }
 
-  const task = transition(task, "FAILED");
+  const task = await loadTask(taskId);
   await deleteTask(task);
 
   console.log(`Task canceled: ${task.id}`);
@@ -154,19 +92,11 @@ async function approvePlan(workspace: string, args: string[]) {
     throw new Error("Task id is required");
   }
 
-  let task = await loadTask(taskId);
+  const task = await executeApprovedTask(taskId, workspace);
 
-  if (task.state !== "AWAITING_APPROVAL") {
-    throw new Error(
-      `Task ${task.id} cannot be approved from state ${task.state}`
-    );
-  }
-
-  task = transition(task, "IMPLEMENTING");
-  await saveTask(task);
-
-  console.log(`Task approved: ${task.id}`);
+  console.log(`Task completed: ${task.id}`);
   console.log(`State: ${task.state}`);
+  console.log(`Pull request: ${task.pullRequestUrl}`);
 }
 
 async function handlePlan(workspace: string, args: string[]) {
