@@ -11,6 +11,11 @@ export interface Task {
   threadId?: string;
   plan?: Plan;
 
+  baseBranch?: string;
+  branchName?: string;
+  commitSha?: string;
+  pullRequestUrl?: string;
+
   validation?: ValidationResult;
 
   createdAt: string;
