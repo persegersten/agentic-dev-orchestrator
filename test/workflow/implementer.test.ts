@@ -45,6 +45,7 @@ it("resumes the persisted thread in workspace-write with the authoritative plan 
   expect(prompt).toContain(JSON.stringify(task.plan, null, 2));
   expect(prompt).toContain("persisted approved plan above is authoritative");
   expect(prompt).toContain("agent/test");
+  expect(prompt).toContain("Do not merge or approve pull requests.");
   expect(prompt).toContain(
     "Do not create or switch branches, commit, push, or create pull requests.",
   );

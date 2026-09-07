@@ -40,6 +40,8 @@ it("runs the lifecycle only through explicit approval and prints the PR URL", as
   mocks.executeApprovedTask.mockResolvedValue({
     id: "task-1",
     state: "COMPLETED",
+    branchName: "agent/task-1",
+    commitSha: "abc123",
     pullRequestUrl: "https://github.com/example/repo/pull/1",
   });
   await import("../../src/cli/agent.js");
@@ -52,6 +54,10 @@ it("runs the lifecycle only through explicit approval and prints the PR URL", as
     "task-1",
     "/workspace",
   );
+  expect(console.log).toHaveBeenCalledWith("Task completed: task-1");
+  expect(console.log).toHaveBeenCalledWith("Branch: agent/task-1");
+  expect(console.log).toHaveBeenCalledWith("Commit: abc123");
+  expect(console.log).toHaveBeenLastCalledWith("State: COMPLETED");
 });
 
 it("planning still stops at AWAITING_APPROVAL", async () => {

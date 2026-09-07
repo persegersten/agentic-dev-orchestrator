@@ -95,8 +95,10 @@ async function approvePlan(workspace: string, args: string[]) {
   const task = await executeApprovedTask(taskId, workspace);
 
   console.log(`Task completed: ${task.id}`);
-  console.log(`State: ${task.state}`);
+  console.log(`Branch: ${task.branchName}`);
+  console.log(`Commit: ${task.commitSha}`);
   console.log(`Pull request: ${task.pullRequestUrl}`);
+  console.log(`State: ${task.state}`);
 }
 
 async function handlePlan(workspace: string, args: string[]) {
