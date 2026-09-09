@@ -22,12 +22,12 @@ describe("validateWorkspace", () => {
     const workspace = await createWorkspace(
       "#!/bin/sh\nprintf '%s' \"$PWD\"\n",
     );
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
     const result = await validateWorkspace(workspace);
 
     expect(log).toHaveBeenCalledWith(
-      `Starting validation: command="./mvnw test" cwd=${JSON.stringify(join(workspace, "backend"))}`,
+      `[VALIDATING] Starting validation: command="./mvnw test" cwd=${JSON.stringify(join(workspace, "backend"))}`,
     );
     expect(result).toEqual({
       success: true,

@@ -9,6 +9,7 @@ import { planChange, type PlannerResult } from "../workflow/planner.js";
 import { createTask, loadTask, saveTask, deleteTask } from "../workflow/task-store.js";
 import { transition } from "../workflow/task.js";
 import { executeApprovedTask } from "../workflow/execute-task.js";
+import { restoreTask } from "../workflow/restore-task.js";
 
 const logger = pino({
   level: process.env.LOG_LEVEL ?? "info",
@@ -43,6 +44,15 @@ async function main(): Promise<void> {
   case "approve":
     await approvePlan(input.workspace, args);
     break;
+
+  case "restore": {
+    if (args.length !== 1) throw new Error("Usage: restore <task-id>");
+    const task = await restoreTask(args[0]!);
+    console.log(`Task restored: ${task.id}`);
+    console.log(`State: ${task.state}`);
+    console.log("Before retrying, clean up GitHub and the target source folder, then run ./run-approved-agent-task.sh " + task.id);
+    break;
+  }
 
   case "delete":
     await deletePlan(input.workspace, args);

@@ -19,8 +19,44 @@ import { runCodex, runResumedCodex } from "../../src/codex/runCodex.js";
 beforeEach(() => {
   vi.resetAllMocks();
   sdk.run.mockResolvedValue({ finalResponse: "Done", usage: {} });
-  sdk.startThread.mockReturnValue({ id: "thread-1", run: sdk.run });
-  sdk.resumeThread.mockReturnValue({ id: "thread-1", run: sdk.run });
+  sdk.startThread.mockReturnValue({
+    id: "thread-1",
+    runStreamed: async (input: string) => {
+      const result = await sdk.run(input);
+      return {
+        events: (async function* () {
+          yield {
+            type: "item.completed",
+            item: {
+              id: "message",
+              type: "agent_message",
+              text: result.finalResponse,
+            },
+          };
+          yield { type: "turn.completed", usage: result.usage };
+        })(),
+      };
+    },
+  });
+  sdk.resumeThread.mockReturnValue({
+    id: "thread-1",
+    runStreamed: async (input: string) => {
+      const result = await sdk.run(input);
+      return {
+        events: (async function* () {
+          yield {
+            type: "item.completed",
+            item: {
+              id: "message",
+              type: "agent_message",
+              text: result.finalResponse,
+            },
+          };
+          yield { type: "turn.completed", usage: result.usage };
+        })(),
+      };
+    },
+  });
 });
 
 it("resumes the persisted thread in workspace-write with the authoritative plan and Git restrictions", async () => {
@@ -61,7 +97,25 @@ it("keeps planning read-only", async () => {
 });
 
 it("rejects a resumed turn with no thread ID", async () => {
-  sdk.resumeThread.mockReturnValue({ id: null, run: sdk.run });
+  sdk.resumeThread.mockReturnValue({
+    id: null,
+    runStreamed: async (input: string) => {
+      const result = await sdk.run(input);
+      return {
+        events: (async function* () {
+          yield {
+            type: "item.completed",
+            item: {
+              id: "message",
+              type: "agent_message",
+              text: result.finalResponse,
+            },
+          };
+          yield { type: "turn.completed", usage: result.usage };
+        })(),
+      };
+    },
+  });
   await expect(
     runResumedCodex("thread-1", "Implement", "/workspace"),
   ).rejects.toThrow("no thread ID");

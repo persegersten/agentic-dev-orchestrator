@@ -2,11 +2,13 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   executeApprovedTask: vi.fn(),
+  restoreTask: vi.fn(),
   planChange: vi.fn(),
   loadTask: vi.fn(),
   saveTask: vi.fn(),
 }));
 vi.mock("../../src/workflow/execute-task.js", () => mocks);
+vi.mock("../../src/workflow/restore-task.js", () => mocks);
 vi.mock("../../src/workflow/planner.js", () => mocks);
 vi.mock("../../src/workflow/task-store.js", () => ({
   ...mocks,
@@ -96,6 +98,41 @@ it("reports lifecycle failures and exits unsuccessfully without printing complet
   process.argv = ["node", "agent", "approve", "task-1"];
   const error = new Error("Push failed");
   mocks.executeApprovedTask.mockRejectedValue(error);
+  await import("../../src/cli/agent.js");
+  await vi.waitFor(() => expect(process.exitCode).toBe(1));
+  expect(console.error).toHaveBeenCalledWith(error);
+  expect(console.log).not.toHaveBeenCalled();
+});
+
+it("restores a task without approving or planning", async () => {
+  process.argv = ["node", "agent", "restore", "task-1"];
+  mocks.restoreTask.mockResolvedValue({
+    id: "task-1",
+    state: "AWAITING_APPROVAL",
+  });
+  await import("../../src/cli/agent.js");
+  await vi.waitFor(() =>
+    expect(console.log).toHaveBeenCalledWith("State: AWAITING_APPROVAL"),
+  );
+  expect(mocks.restoreTask).toHaveBeenCalledExactlyOnceWith("task-1");
+  expect(mocks.executeApprovedTask).not.toHaveBeenCalled();
+  expect(mocks.planChange).not.toHaveBeenCalled();
+});
+
+it.each([[], ["task-1", "extra"]])(
+  "rejects invalid restore arguments %j",
+  async (...args) => {
+    process.argv = ["node", "agent", "restore", ...args];
+    await import("../../src/cli/agent.js");
+    await vi.waitFor(() => expect(process.exitCode).toBe(1));
+    expect(mocks.restoreTask).not.toHaveBeenCalled();
+  },
+);
+
+it("reports restore failures", async () => {
+  process.argv = ["node", "agent", "restore", "task-1"];
+  const error = new Error("Task cannot be restored");
+  mocks.restoreTask.mockRejectedValue(error);
   await import("../../src/cli/agent.js");
   await vi.waitFor(() => expect(process.exitCode).toBe(1));
   expect(console.error).toHaveBeenCalledWith(error);

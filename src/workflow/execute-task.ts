@@ -1,3 +1,4 @@
+import { reportProgress } from "./progress.js";
 import {
   assertWorkspaceClean,
   commitChanges,
@@ -24,10 +25,16 @@ export async function executeApprovedTask(
     );
   }
 
+  const started = Date.now();
+  reportProgress(`Task approved: ${task.id}; workspace: ${workspace}`);
+
   async function advance(state: WorkflowState): Promise<void> {
     const next = transition(task, state);
     await saveTask(next);
     task = next;
+    reportProgress(
+      `[${state}] elapsed ${Math.floor((Date.now() - started) / 1000)}s`,
+    );
   }
 
   async function requireTaskBranch(): Promise<void> {
@@ -42,9 +49,11 @@ export async function executeApprovedTask(
     if (!task.threadId) throw new Error("Task has no Codex threadId");
 
     task = { ...task, baseBranch: await getCurrentBranch(workspace) };
+    reportProgress(`Base branch: ${task.baseBranch}; checking workspace`);
     await assertWorkspaceClean(workspace);
     await advance("CREATING_BRANCH");
     task = { ...task, branchName: await createTaskBranch(task, workspace) };
+    reportProgress(`Task branch: ${task.branchName}`);
     await advance("IMPLEMENTING");
     await requireTaskBranch();
     await runImplementer(task, workspace);
@@ -60,6 +69,7 @@ export async function executeApprovedTask(
 
     await advance("COMMITTING");
     task = { ...task, commitSha: await commitChanges(task, workspace) };
+    reportProgress(`Commit: ${task.commitSha}`);
     await advance("PUSHING");
     await pushBranch(task, workspace);
     await advance("CREATING_PR");
@@ -67,6 +77,7 @@ export async function executeApprovedTask(
       ...task,
       pullRequestUrl: await createPullRequest(task, workspace),
     };
+    reportProgress(`Pull request: ${task.pullRequestUrl}`);
     await advance("COMPLETED");
     return task;
   } catch (cause) {

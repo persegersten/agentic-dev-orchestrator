@@ -49,6 +49,29 @@ existing changes are never reset or stashed. Inspect retained changes and any
 remote PR before retrying an ambiguous failure. Successful runs leave the task
 branch checked out; select the intended base branch before starting a new task.
 
+To retry a failed or interrupted execution, first stop any active run, then run:
+
+```bash
+./restore-agent-task.sh <task-id>
+# Equivalent: npm run agent -- restore <task-id>
+```
+
+Restore returns `FAILED` or an execution state from `CREATING_BRANCH` through
+`CREATING_PR` to `AWAITING_APPROVAL`. It requires a valid saved plan and Codex
+thread ID. Tasks already awaiting approval are unchanged; completed tasks and
+tasks still being planned are rejected. The saved plan, thread ID, instruction,
+task ID, and creation time are preserved. Execution metadata (base branch, task
+branch, commit, PR URL, and validation) is cleared from the task record.
+
+You are responsible for cleaning up GitHub and the target source folder before
+retrying: inspect any existing PR or remote branch, resolve retained local
+changes, check out the intended base branch, and remove conflicting task
+branches (`agent/<task-id>`) as needed. Restore only updates the task record;
+it does not perform cleanup, re-plan, or start implementation. There is no lock,
+so never restore a task while its execution is running. After cleanup and review,
+run `./run-approved-agent-task.sh <task-id>` to explicitly approve a fresh execution
+of the saved plan.
+
 Tests mock Codex and GitHub commands and use temporary local Git repositories
 (including a local bare origin). They do not create real GitHub PRs.
 
@@ -57,5 +80,5 @@ npm test
 npm run typecheck
 npm run lint
 npm run format
-bash -n plan-agent-task.sh run-approved-agent-task.sh
+bash -n plan-agent-task.sh run-approved-agent-task.sh restore-agent-task.sh
 ```

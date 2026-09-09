@@ -45,7 +45,25 @@ it("exercises real CLI create/plan and JSON storage without implementing", async
     tests: ["Test reverse"],
   };
   sdk.run.mockResolvedValue({ finalResponse: JSON.stringify(plan), usage: {} });
-  sdk.startThread.mockReturnValue({ id: "planning-thread", run: sdk.run });
+  sdk.startThread.mockReturnValue({
+    id: "planning-thread",
+    runStreamed: async (input: string) => {
+      const result = await sdk.run(input);
+      return {
+        events: (async function* () {
+          yield {
+            type: "item.completed",
+            item: {
+              id: "message",
+              type: "agent_message",
+              text: result.finalResponse,
+            },
+          };
+          yield { type: "turn.completed", usage: result.usage };
+        })(),
+      };
+    },
+  });
 
   process.argv = [
     "node",
