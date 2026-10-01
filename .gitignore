@@ -1,5 +1,8 @@
 node_modules/
+bugreports/
+features/
 dist/
+run.agent.log
 .agent-runs/
 .env
 .agent/

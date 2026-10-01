@@ -110,6 +110,17 @@ it("invokes approval exactly once and passes through completion without a prompt
   expect(result.stdout).toContain(
     "Task completed: task-123\nBranch: agent/task-123\nCommit: abc123\nPull request: https://github.com/example/repo/pull/1\nState: COMPLETED",
   );
+  expect(await readFile(join(wrapperDirectory, "run.agent.log"), "utf8")).toBe(
+    result.stdout,
+  );
+});
+
+it("appends approval output without overwriting previous runs", async () => {
+  const first = await run(scripts[1]!, ["task-123"]);
+  const second = await run(scripts[1]!, ["task-123"]);
+  expect(await readFile(join(wrapperDirectory, "run.agent.log"), "utf8")).toBe(
+    first.stdout + second.stdout,
+  );
 });
 
 it.each(
@@ -143,8 +154,12 @@ it("propagates approval failure without retrying or re-planning", async () => {
   env.FAIL_COMMAND = "approve";
   await expect(run(scripts[1]!, ["task-123"])).rejects.toMatchObject({
     code: 7,
-    stdout: "",
+    stdout: "approve failed\n",
+    stderr: "",
   });
+  expect(await readFile(join(wrapperDirectory, "run.agent.log"), "utf8")).toBe(
+    "approve failed\n",
+  );
   expect(await calls()).toEqual([
     wrapperDirectory,
     "run",

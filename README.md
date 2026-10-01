@@ -19,7 +19,11 @@ This creates a task, prints the read-only plan and task ID, and stops at
 
 Running the second script is explicit approval. There is no second prompt and
 no automatic re-planning. The TypeScript orchestrator verifies that the existing
-task is awaiting approval and performs the lifecycle:
+task is awaiting approval and performs the lifecycle below.
+
+Both stdout and stderr are streamed to stdout and appended to `run.agent.log`
+in the orchestrator directory, including crash stack traces. Previous runs are
+retained, and a failed run still returns a nonzero exit status.
 
 ```text
 RECEIVED → PLANNING → AWAITING_APPROVAL

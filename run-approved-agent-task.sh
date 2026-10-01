@@ -18,4 +18,6 @@ fi
 
 # Running this script explicitly approves the persisted plan.
 # State checks and the entire lifecycle belong to the TypeScript orchestrator.
-npm run agent -- approve "$task_id"
+# Capture stderr too, including progress messages and crash stack traces.
+# pipefail preserves a failed orchestrator's exit status even when tee succeeds.
+npm run agent -- approve "$task_id" 2>&1 | tee -a run.agent.log
