@@ -2,7 +2,10 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { afterEach, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ spawn: vi.fn() }));
-vi.mock("node:child_process", () => mocks);
+vi.mock("node:child_process", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:child_process")>()),
+  ...mocks,
+}));
 import { validateWorkspace } from "../../src/workflow/validator.js";
 
 afterEach(() => vi.restoreAllMocks());
@@ -19,6 +22,7 @@ it("shows both output streams before process completion and preserves their cont
     completed = true;
     return value;
   });
+  await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalled());
   child.stdout.write("Tests starting\n");
   child.stderr.write("Docker unavailable\n");
   expect(log).toHaveBeenCalledWith("[VALIDATING] Tests starting");

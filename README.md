@@ -5,6 +5,13 @@ identity and push credentials, a writable `origin`, and authenticated GitHub CLI
 (`gh auth login`). The target needs an executable `backend/mvnw` and the Java
 environment required to run `./mvnw test` from its `backend` directory.
 
+When `backend/pom.xml` declares `org.testcontainers`, validation first runs
+`docker info` with a 15-second timeout. Docker must be accessible from the
+orchestrator's environment; on Windows/WSL, enable Docker Desktop's WSL
+integration for that distribution. A failed check stops validation before Maven
+and reports setup guidance. Dependencies declared only in parent or module POMs
+are not detected by this check; Maven still reports their Testcontainers errors.
+
 ```bash
 export AGENT_WORKSPACE=/absolute/path/to/target-repository
 ./plan-agent-task.sh "Add reverse movement to vehicles"

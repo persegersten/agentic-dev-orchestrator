@@ -1,6 +1,34 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { createInterface } from "node:readline";
+import { promisify } from "node:util";
 import { startProgress } from "./progress.js";
+
+const runCommand = promisify(execFile);
+
+async function checkDocker(cwd: string): Promise<string | undefined> {
+  let pom: string;
+  try {
+    pom = await readFile(`${cwd}/pom.xml`, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+  if (!/\borg\.testcontainers\b/.test(pom.replace(/<!--[\s\S]*?-->/g, "")))
+    return;
+
+  try {
+    await runCommand("docker", ["info"], { cwd, timeout: 15_000 });
+  } catch (error) {
+    return [
+      "Docker preflight failed: this backend declares Testcontainers dependencies, but Docker is unavailable. Maven tests were not started.",
+      "Start Docker and verify that 'docker info' works in the same environment as the orchestrator.",
+      "On Windows/WSL, enable Docker Desktop > Settings > Resources > WSL Integration for your distribution and apply the settings.",
+      "If Docker uses a custom socket, set DOCKER_HOST for the orchestrator and Testcontainers.",
+      error instanceof Error ? error.message : String(error),
+    ].join("\n");
+  }
+}
 
 export interface ValidationResult {
   success: boolean;
@@ -18,6 +46,11 @@ export async function validateWorkspace(
   let stdout = "";
   let stderr = "";
   try {
+    const dockerFailure = await checkDocker(cwd);
+    if (dockerFailure) {
+      progress.report(dockerFailure);
+      return { success: false, output: dockerFailure };
+    }
     return await new Promise<ValidationResult>((resolve) => {
       const child = spawn("./mvnw", ["test"], {
         cwd,
