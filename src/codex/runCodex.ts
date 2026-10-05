@@ -27,10 +27,12 @@ export async function runResumedCodex(
   threadId: string,
   instruction: string,
   workspace: string,
+  model?: string,
 ): Promise<CodexRunResult> {
   const codex = new Codex();
 
   const thread = codex.resumeThread(threadId, {
+    ...(model ? { model } : {}),
     workingDirectory: workspace,
     sandboxMode: "workspace-write",
     approvalPolicy: "never",

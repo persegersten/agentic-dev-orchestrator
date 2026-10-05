@@ -55,12 +55,42 @@ validates, commits, pushes only the task branch, and creates a PR to the capture
 base. Failed validation prevents commit, push, and PR creation.
 
 Run one task per workspace at a time and avoid concurrent user edits: there is
-no workspace lock. Failed/interrupted runs do not resume automatically, and
+no workspace lock. Failed/interrupted runs require explicit recovery, and
 existing changes are never reset or stashed. Inspect retained changes and any
 remote PR before retrying an ambiguous failure. Successful runs leave the task
 branch checked out; select the intended base branch before starting a new task.
 
-To retry a failed or interrupted execution, first stop any active run, then run:
+To continue a failed or interrupted implementation or validation, stop any active
+run, review retained changes, and leave the original task branch checked out:
+
+```bash
+export AGENT_WORKSPACE=/absolute/path/to/target-repository
+./resume-agent-task.sh <task-id>
+# Optional model override, persisted for subsequent resumes:
+./resume-agent-task.sh <task-id> --model <available-model>
+# Equivalent: npm run agent -- resume <task-id> [--model <available-model>]
+```
+
+Resume is explicit approval to continue the saved plan through validation, commit,
+push, and PR creation. It preserves local changes, the Codex thread, and the original
+base/task branch; it does not create a new branch or re-plan. Implementation resumes
+inspect existing changes before continuing. Validation resumes rerun validation
+without repeating implementation; fix any failing tests before retrying validation.
+New executions persist the canonical workspace path and failure step/message/time.
+Resume rejects a different saved workspace, wrong branch, invalid plan/thread,
+completed tasks, and failures during commit, push, or PR creation. Inspect those
+later failures manually because Git/GitHub may already have completed an operation.
+
+Older failed tasks without failure metadata can resume implementation when their
+base/task branch metadata remains and no validation, commit, or PR metadata exists.
+For these legacy records the supplied workspace and checked-out task branch are
+verified, but the original workspace and failed step cannot be independently
+confirmed. Verify the log first. Resume has no workspace lock: do not run it alongside
+another execution or include unrelated edits, since commit stages all changes.
+The latest failure remains saved for inspection even after successful recovery.
+
+To restart a failed or interrupted execution from branch creation instead, first
+stop any active run, then run:
 
 ```bash
 ./restore-agent-task.sh <task-id>
@@ -91,5 +121,5 @@ npm test
 npm run typecheck
 npm run lint
 npm run format
-bash -n plan-agent-task.sh run-approved-agent-task.sh restore-agent-task.sh
+bash -n plan-agent-task.sh run-approved-agent-task.sh restore-agent-task.sh resume-agent-task.sh
 ```

@@ -8,6 +8,10 @@ export interface Task {
   instruction: string;
   state: WorkflowState;
 
+  workspace?: string;
+  model?: string;
+  failure?: { state: WorkflowState; message: string; at: string };
+
   threadId?: string;
   plan?: Plan;
 
@@ -22,17 +26,11 @@ export interface Task {
   updatedAt: string;
 }
 
-export function transition(
-  task: Task,
-  target: WorkflowState,
-): Task {
-
+export function transition(task: Task, target: WorkflowState): Task {
   const allowed = allowedTransitions[task.state];
 
   if (!allowed.includes(target)) {
-    throw new Error(
-      `Illegal transition ${task.state} -> ${target}`,
-    );
+    throw new Error(`Illegal transition ${task.state} -> ${target}`);
   }
 
   return {

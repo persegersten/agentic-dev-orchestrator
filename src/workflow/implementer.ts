@@ -2,30 +2,29 @@ import { runResumedCodex } from "../codex/runCodex.js";
 import { PlanSchema, type Plan } from "./plan.js";
 import { type Task } from "./task.js";
 
-export async function runImplementer(task: Task, workspace: string): Promise<void> {
-
+export async function runImplementer(
+  task: Task,
+  workspace: string,
+): Promise<void> {
   if (!task.threadId) {
-  throw new Error(`Task ${task.id} has no threadId`);
+    throw new Error(`Task ${task.id} has no threadId`);
   }
-
 
   if (!task.plan) {
-    throw new Error(
-      `Task ${task.id} has no approved plan`
-    );
+    throw new Error(`Task ${task.id} has no approved plan`);
   }
 
-  const result = await runResumedCodex(task.threadId,
+  const result = await runResumedCodex(
+    task.threadId,
     buildImplementationPrompt(task),
-    workspace);
+    workspace,
+    task.model,
+  );
 
-   // TODO return result to the task or somewhere else for later inspection
-    
+  // TODO return result to the task or somewhere else for later inspection
 }
 
 export function buildImplementationPrompt(task: Task): string {
-  
-
   return `
 Implement the approved plan for this task.
 
@@ -41,6 +40,7 @@ Requirements:
 - Do not create or switch branches, commit, push, or create pull requests.
 - Do not merge or approve pull requests.
 - The orchestrator owns all Git and GitHub lifecycle operations.
+- Inspect existing changes and continue unfinished work; preserve completed work.
 - Follow the approved plan.
 - Keep changes within the scope of the plan.
 - Modify the repository as needed to implement the plan.

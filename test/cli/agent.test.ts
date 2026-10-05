@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   executeApprovedTask: vi.fn(),
+  resumeTask: vi.fn(),
   restoreTask: vi.fn(),
   planChange: vi.fn(),
   loadTask: vi.fn(),
@@ -137,4 +138,44 @@ it("reports restore failures", async () => {
   await vi.waitFor(() => expect(process.exitCode).toBe(1));
   expect(console.error).toHaveBeenCalledWith(error);
   expect(console.log).not.toHaveBeenCalled();
+});
+
+it.each([undefined, "alternative-model"])(
+  "resumes explicitly with model %s",
+  async (model) => {
+    process.argv = [
+      "node",
+      "agent",
+      "resume",
+      "task-1",
+      ...(model ? ["--model", model] : []),
+    ];
+    mocks.resumeTask.mockResolvedValue({
+      id: "task-1",
+      state: "COMPLETED",
+      pullRequestUrl: "PR",
+    });
+    await import("../../src/cli/agent.js");
+    await vi.waitFor(() =>
+      expect(console.log).toHaveBeenCalledWith("State: COMPLETED"),
+    );
+    expect(mocks.resumeTask).toHaveBeenCalledExactlyOnceWith(
+      "task-1",
+      "/workspace",
+      model,
+    );
+    expect(mocks.executeApprovedTask).not.toHaveBeenCalled();
+  },
+);
+
+it.each([
+  [],
+  ["task-1", "extra"],
+  ["task-1", "--model"],
+  ["task-1", "--model", " "],
+])("rejects invalid resume arguments %j", async (...args) => {
+  process.argv = ["node", "agent", "resume", ...args];
+  await import("../../src/cli/agent.js");
+  await vi.waitFor(() => expect(process.exitCode).toBe(1));
+  expect(mocks.resumeTask).not.toHaveBeenCalled();
 });

@@ -15,6 +15,7 @@ import { afterEach, beforeEach, expect, it } from "vitest";
 
 const execute = promisify(execFile);
 const scripts = ["plan-agent-task.sh", "run-approved-agent-task.sh"];
+const resumeScript = "resume-agent-task.sh";
 let directory: string;
 let wrapperDirectory: string;
 let log: string;
@@ -26,7 +27,7 @@ beforeEach(async () => {
   const bin = join(directory, "bin");
   await mkdir(wrapperDirectory);
   await mkdir(bin);
-  for (const script of scripts) {
+  for (const script of [...scripts, resumeScript]) {
     await copyFile(resolve(script), join(wrapperDirectory, script));
     await chmod(join(wrapperDirectory, script), 0o755);
   }
@@ -45,7 +46,7 @@ fi
 case "$4" in
   create) if [[ -z "$NO_TASK_ID" ]]; then echo 'Task created: task-123'; fi ;;
   plan) echo 'State: AWAITING_APPROVAL' ;;
-  approve) printf 'Task completed: task-123\\nBranch: agent/task-123\\nCommit: abc123\\nPull request: https://github.com/example/repo/pull/1\\nState: COMPLETED\\n' ;;
+  approve|resume) printf 'Task completed: task-123\\nBranch: agent/task-123\\nCommit: abc123\\nPull request: https://github.com/example/repo/pull/1\\nState: COMPLETED\\n' ;;
   *) exit 8 ;;
 esac
 `,
@@ -168,4 +169,44 @@ it("propagates approval failure without retrying or re-planning", async () => {
     "approve",
     "task-123",
   ]);
+});
+
+it("resumes from the script directory and forwards the model literally", async () => {
+  const model = 'model; $(literal) "quotes"';
+  const result = await run(resumeScript, ["task-123", "--model", model]);
+  expect(await calls()).toEqual([
+    wrapperDirectory,
+    "run",
+    "agent",
+    "--",
+    "resume",
+    "task-123",
+    "--model",
+    model,
+  ]);
+  expect(await readFile(join(wrapperDirectory, "run.agent.log"), "utf8")).toBe(
+    result.stdout,
+  );
+});
+
+it.each([
+  [],
+  [" "],
+  ["task-123", "--model"],
+  ["task-123", "--other", "model"],
+  ["task-123", "--model", " "],
+])("rejects invalid resume wrapper arguments %j", async (...args) => {
+  await expect(run(resumeScript, args)).rejects.toHaveProperty("code", 64);
+  expect(await calls()).toEqual([]);
+});
+
+it("preserves resume failures in the log and exit status", async () => {
+  env.FAIL_COMMAND = "resume";
+  await expect(run(resumeScript, ["task-123"])).rejects.toMatchObject({
+    code: 7,
+    stdout: "resume failed\n",
+  });
+  expect(await readFile(join(wrapperDirectory, "run.agent.log"), "utf8")).toBe(
+    "resume failed\n",
+  );
 });

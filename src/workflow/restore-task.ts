@@ -48,6 +48,7 @@ export async function restoreTask(taskId: string): Promise<Task> {
   delete restored.commitSha;
   delete restored.pullRequestUrl;
   delete restored.validation;
+  delete restored.failure;
   await saveTask(restored);
   return restored;
 }

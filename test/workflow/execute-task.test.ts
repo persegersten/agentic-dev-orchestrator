@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   loadTask: vi.fn(),
   saveTask: vi.fn(),
   getCurrentBranch: vi.fn(),
+  getTaskBranchName: vi.fn(),
   assertWorkspaceClean: vi.fn(),
   createTaskBranch: vi.fn(),
   runImplementer: vi.fn(),
@@ -14,13 +15,17 @@ const mocks = vi.hoisted(() => ({
   pushBranch: vi.fn(),
   createPullRequest: vi.fn(),
 }));
+vi.mock("node:fs/promises", () => ({ realpath: async (path: string) => path }));
 vi.mock("../../src/workflow/task-store.js", () => mocks);
 vi.mock("../../src/git/git-service.js", () => mocks);
 vi.mock("../../src/workflow/implementer.js", () => mocks);
 vi.mock("../../src/workflow/validator.js", () => mocks);
 vi.mock("../../src/github/pull-request-service.js", () => mocks);
 
-import { executeApprovedTask } from "../../src/workflow/execute-task.js";
+import {
+  executeApprovedTask,
+  resumeTask,
+} from "../../src/workflow/execute-task.js";
 
 let input: Task;
 let saved: Task[];
@@ -29,6 +34,7 @@ const workspace = "/isolated/workspace";
 
 beforeEach(() => {
   vi.resetAllMocks();
+  mocks.getTaskBranchName.mockImplementation((id: string) => `agent/${id}`);
   saved = [];
   events = [];
   input = {
@@ -269,5 +275,129 @@ describe("executeApprovedTask", () => {
       errors: [expect.objectContaining({ cause }), disk],
     });
     expect(mocks.validateWorkspace).not.toHaveBeenCalled();
+  });
+});
+
+describe("resumeTask", () => {
+  beforeEach(() => {
+    input = {
+      ...input,
+      state: "FAILED",
+      workspace,
+      baseBranch: "development",
+      branchName: "agent/execution-test",
+      failure: {
+        state: "IMPLEMENTING",
+        message: "Selected model is at capacity",
+        at: "now",
+      },
+    };
+    mocks.getCurrentBranch.mockReset().mockResolvedValue(input.branchName);
+  });
+
+  it("continues on the existing branch, preserves metadata and selects a model", async () => {
+    const result = await resumeTask(input.id, workspace, "alternative-model");
+    expect(mocks.assertWorkspaceClean).not.toHaveBeenCalled();
+    expect(mocks.createTaskBranch).not.toHaveBeenCalled();
+    expect(mocks.runImplementer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: input.threadId,
+        plan: input.plan,
+        baseBranch: "development",
+        branchName: input.branchName,
+        model: "alternative-model",
+        state: "IMPLEMENTING",
+      }),
+      workspace,
+    );
+    expect(result).toMatchObject({
+      state: "COMPLETED",
+      model: "alternative-model",
+      baseBranch: "development",
+    });
+    expect(mocks.validateWorkspace).toHaveBeenCalledOnce();
+    expect(mocks.commitChanges).toHaveBeenCalledOnce();
+    expect(mocks.pushBranch).toHaveBeenCalledOnce();
+    expect(mocks.createPullRequest).toHaveBeenCalledOnce();
+  });
+
+  it("supports the existing legacy implementation failure without failure/workspace metadata", async () => {
+    delete input.failure;
+    delete input.workspace;
+    await resumeTask(input.id, workspace);
+    expect(saved[0]).toMatchObject({ state: "IMPLEMENTING", workspace });
+  });
+
+  it.each(["IMPLEMENTING", "VALIDATING"] as const)(
+    "recovers an interrupted %s",
+    async (state) => {
+      input.state = state;
+      await resumeTask(input.id, workspace);
+      expect(mocks.runImplementer).toHaveBeenCalledTimes(
+        state === "IMPLEMENTING" ? 1 : 0,
+      );
+      expect(mocks.validateWorkspace).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("retries validation without repeating implementation", async () => {
+    input.failure!.state = "VALIDATING";
+    input.validation = { success: false, output: "Docker unavailable" };
+    await resumeTask(input.id, workspace);
+    expect(mocks.runImplementer).not.toHaveBeenCalled();
+    expect(saved.at(-1)?.validation?.success).toBe(true);
+  });
+
+  it.each([
+    { state: "AWAITING_APPROVAL" },
+    { state: "COMPLETED" },
+    { baseBranch: undefined },
+    { branchName: "agent/other" },
+    { workspace: "/other/workspace" },
+    { threadId: undefined },
+    { plan: undefined },
+    { commitSha: "existing" },
+    { pullRequestUrl: "existing" },
+    { failure: { state: "COMMITTING", message: "failure", at: "now" } },
+    { failure: undefined, validation: { success: true, output: "passed" } },
+  ])(
+    "rejects unsafe recovery %j without writes or implementation",
+    async (override) => {
+      Object.assign(input, override);
+      await expect(resumeTask(input.id, workspace)).rejects.toThrow();
+      expect(mocks.saveTask).not.toHaveBeenCalled();
+      expect(mocks.runImplementer).not.toHaveBeenCalled();
+      expect(mocks.commitChanges).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects a different checked-out branch without changing task state", async () => {
+    mocks.getCurrentBranch.mockResolvedValue("development");
+    await expect(resumeTask(input.id, workspace)).rejects.toThrow(
+      "original task branch",
+    );
+    expect(mocks.saveTask).not.toHaveBeenCalled();
+  });
+
+  it("records repeated capacity errors and permits a subsequent retry", async () => {
+    mocks.runImplementer.mockRejectedValueOnce(new Error("at capacity"));
+    await expect(resumeTask(input.id, workspace)).rejects.toThrow(
+      "at capacity",
+    );
+    expect(saved.at(-1)).toMatchObject({
+      state: "FAILED",
+      failure: { state: "IMPLEMENTING", message: "at capacity" },
+    });
+    input = saved.at(-1)!;
+    await expect(resumeTask(input.id, workspace)).resolves.toMatchObject({
+      state: "COMPLETED",
+    });
+  });
+
+  it("does not lose the original failed step if saving the resume checkpoint fails", async () => {
+    mocks.saveTask.mockRejectedValueOnce(new Error("disk full"));
+    await expect(resumeTask(input.id, workspace)).rejects.toThrow("disk full");
+    expect(mocks.runImplementer).not.toHaveBeenCalled();
+    expect(saved.at(-1)?.state).toBe("FAILED");
   });
 });

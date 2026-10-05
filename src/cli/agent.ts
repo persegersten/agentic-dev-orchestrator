@@ -6,9 +6,14 @@ import { z } from "zod";
 
 import { runCodex as runCodexReadOnly } from "../codex/runCodex.js";
 import { planChange, type PlannerResult } from "../workflow/planner.js";
-import { createTask, loadTask, saveTask, deleteTask } from "../workflow/task-store.js";
+import {
+  createTask,
+  loadTask,
+  saveTask,
+  deleteTask,
+} from "../workflow/task-store.js";
 import { transition } from "../workflow/task.js";
-import { executeApprovedTask } from "../workflow/execute-task.js";
+import { executeApprovedTask, resumeTask } from "../workflow/execute-task.js";
 import { restoreTask } from "../workflow/restore-task.js";
 
 const logger = pino({
@@ -16,7 +21,10 @@ const logger = pino({
 });
 
 const inputSchema = z.object({
-  command: z.string().trim().min(1, "Ett kommando eller en instruktion måste anges."),
+  command: z
+    .string()
+    .trim()
+    .min(1, "Ett kommando eller en instruktion måste anges."),
   arguments: z.array(z.string()),
   workspace: z.string().trim().min(1),
 });
@@ -27,43 +35,62 @@ async function main(): Promise<void> {
   const input = inputSchema.parse({
     command,
     arguments: args,
-    workspace: resolve(
-      process.env.AGENT_WORKSPACE ?? "../agentic-spring-lab",
-    ),
+    workspace: resolve(process.env.AGENT_WORKSPACE ?? "../agentic-spring-lab"),
   });
 
   switch (command) {
-  case "create":
-    await handleCreate(input.workspace, args);
-    break;
+    case "create":
+      await handleCreate(input.workspace, args);
+      break;
 
-  case "plan":
-    await handlePlan(input.workspace, args);
-    break;
+    case "plan":
+      await handlePlan(input.workspace, args);
+      break;
 
-  case "approve":
-    await approvePlan(input.workspace, args);
-    break;
+    case "approve":
+      await approvePlan(input.workspace, args);
+      break;
 
-  case "restore": {
-    if (args.length !== 1) throw new Error("Usage: restore <task-id>");
-    const task = await restoreTask(args[0]!);
-    console.log(`Task restored: ${task.id}`);
-    console.log(`State: ${task.state}`);
-    console.log("Before retrying, clean up GitHub and the target source folder, then run ./run-approved-agent-task.sh " + task.id);
-    break;
-  }
+    case "resume": {
+      if (
+        !args[0]?.trim() ||
+        (args.length !== 1 &&
+          !(args.length === 3 && args[1] === "--model" && args[2]?.trim()))
+      ) {
+        throw new Error("Usage: resume <task-id> [--model <model>]");
+      }
+      const task = await resumeTask(args[0], input.workspace, args[2]);
+      console.log(`Task completed: ${task.id}`);
+      console.log(`Branch: ${task.branchName}`);
+      console.log(`Commit: ${task.commitSha}`);
+      console.log(`Pull request: ${task.pullRequestUrl}`);
+      console.log(`State: ${task.state}`);
+      break;
+    }
 
-  case "delete":
-    await deletePlan(input.workspace, args);
-    break;
-    
-  case "implement":
-    throw new Error("Use approve <task-id> to explicitly approve and execute the complete task lifecycle.");
+    case "restore": {
+      if (args.length !== 1) throw new Error("Usage: restore <task-id>");
+      const task = await restoreTask(args[0]!);
+      console.log(`Task restored: ${task.id}`);
+      console.log(`State: ${task.state}`);
+      console.log(
+        "Before retrying, clean up GitHub and the target source folder, then run ./run-approved-agent-task.sh " +
+          task.id,
+      );
+      break;
+    }
 
-  default:
-    throw new Error(`Unknown command: ${command}`);
+    case "delete":
+      await deletePlan(input.workspace, args);
+      break;
 
+    case "implement":
+      throw new Error(
+        "Use approve <task-id> to explicitly approve and execute the complete task lifecycle.",
+      );
+
+    default:
+      throw new Error(`Unknown command: ${command}`);
   }
 }
 
@@ -93,8 +120,6 @@ async function deletePlan(workspace: string, args: string[]) {
   console.log(`Task canceled: ${task.id}`);
 }
 
-
-
 async function approvePlan(workspace: string, args: string[]) {
   const taskId = args[0];
 
@@ -122,7 +147,7 @@ async function handlePlan(workspace: string, args: string[]) {
 
   if (task.state !== "RECEIVED") {
     throw new Error(
-      `Task ${task.id} cannot be planned from state ${task.state}`
+      `Task ${task.id} cannot be planned from state ${task.state}`,
     );
   }
 
@@ -151,7 +176,6 @@ async function handlePlan(workspace: string, args: string[]) {
     console.log(`Task: ${task.id}`);
     console.log(`State: ${task.state}`);
     console.log(JSON.stringify(task.plan, null, 2));
-
   } catch (error) {
     // 7. Planning misslyckades
     task = transition(task, "FAILED");
@@ -219,10 +243,7 @@ async function runGeneralAgent(
   );
 
   try {
-    const result = await runCodexReadOnly(
-      instruction,
-      workspace,
-    );
+    const result = await runCodexReadOnly(instruction, workspace);
 
     threadId = result.threadId;
 
@@ -252,10 +273,7 @@ async function runGeneralAgent(
       "utf8",
     );
 
-    logger.info(
-      metadata,
-      "Codex run completed",
-    );
+    logger.info(metadata, "Codex run completed");
 
     console.log();
     console.log("----- Codex result -----");
@@ -285,10 +303,7 @@ async function runGeneralAgent(
 
 main().catch((error: unknown) => {
   if (error instanceof z.ZodError) {
-    console.error(
-      "Felaktiga argument:",
-      error.issues,
-    );
+    console.error("Felaktiga argument:", error.issues);
   } else {
     console.error(error);
   }

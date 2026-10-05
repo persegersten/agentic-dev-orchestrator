@@ -25,6 +25,7 @@ async function fixture(state: WorkflowState): Promise<Task> {
     commitSha: "abc123",
     pullRequestUrl: "https://github.com/example/repo/pull/1",
     validation: { success: false, output: "Failed tests" },
+    failure: { state: "IMPLEMENTING", message: "at capacity", at: "now" },
     updatedAt: "2020-01-01T00:00:00.000Z",
   };
   tasks.push(task);

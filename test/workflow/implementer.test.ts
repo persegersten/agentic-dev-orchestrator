@@ -120,3 +120,18 @@ it("rejects a resumed turn with no thread ID", async () => {
     runResumedCodex("thread-1", "Implement", "/workspace"),
   ).rejects.toThrow("no thread ID");
 });
+
+it("passes an explicit model override to the resumed SDK thread", async () => {
+  await runResumedCodex(
+    "thread-1",
+    "Continue",
+    "/workspace",
+    "alternative-model",
+  );
+  expect(sdk.resumeThread).toHaveBeenCalledWith("thread-1", {
+    workingDirectory: "/workspace",
+    sandboxMode: "workspace-write",
+    approvalPolicy: "never",
+    model: "alternative-model",
+  });
+});
