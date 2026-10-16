@@ -3,6 +3,7 @@ import { PlanSchema } from "./plan.js";
 import { reportProgress } from "./progress.js";
 import {
   assertWorkspaceClean,
+  assertTaskCommit,
   commitChanges,
   createTaskBranch,
   getCurrentBranch,
@@ -24,7 +25,7 @@ export async function executeApprovedTask(
   return executeTask(taskId, workspace);
 }
 
-/** Explicit recovery of implementation/validation; stop any active run first. */
+/** Explicit recovery on the original task branch; stop any active run first. */
 export async function resumeTask(
   taskId: string,
   workspace: string,
@@ -42,9 +43,17 @@ async function executeTask(
     throw new Error("A valid task id is required");
   }
   let task = await loadTask(taskId);
-  let resumeState: "IMPLEMENTING" | "VALIDATING" | undefined;
+  const resumable = [
+    "IMPLEMENTING",
+    "VALIDATING",
+    "COMMITTING",
+    "PUSHING",
+    "CREATING_PR",
+  ] as const;
+  type ResumeState = (typeof resumable)[number];
+  let resumeState: ResumeState | undefined;
   if (recovery) {
-    if (!["FAILED", "IMPLEMENTING", "VALIDATING"].includes(task.state)) {
+    if (!["FAILED", ...resumable].includes(task.state)) {
       throw new Error(`Task ${task.id} cannot resume from ${task.state}`);
     }
     // Older records did not persist the failed step. Only infer implementation
@@ -55,12 +64,16 @@ async function executeTask(
           (task.validation ? "UNKNOWN" : "IMPLEMENTING"))
         : task.state;
     if (
-      !["IMPLEMENTING", "VALIDATING"].includes(step) ||
-      task.commitSha ||
-      task.pullRequestUrl
+      !resumable.includes(step as ResumeState) ||
+      task.pullRequestUrl ||
+      (["IMPLEMENTING", "VALIDATING", "COMMITTING"].includes(step) &&
+        task.commitSha) ||
+      (["COMMITTING", "PUSHING", "CREATING_PR"].includes(step) &&
+        !task.validation?.success) ||
+      (["PUSHING", "CREATING_PR"].includes(step) && !task.commitSha)
     ) {
       throw new Error(
-        "Resume supports implementation and validation only; inspect later Git/GitHub failures manually",
+        "Resume requires consistent saved validation, commit and failure metadata",
       );
     }
     if (
@@ -94,7 +107,10 @@ async function executeTask(
     if (recovery.model !== undefined && !recovery.model.trim()) {
       throw new Error("Model must not be empty");
     }
-    resumeState = step as "IMPLEMENTING" | "VALIDATING";
+    resumeState = step as ResumeState;
+    if (["PUSHING", "CREATING_PR"].includes(step)) {
+      await assertTaskCommit(task, workspace);
+    }
     task = {
       ...task,
       workspace: actualWorkspace,
@@ -159,23 +175,30 @@ async function executeTask(
 
       await advance("VALIDATING");
     }
-    await requireTaskBranch();
-    const validation = await validateWorkspace(workspace);
-    task = { ...task, validation };
-    await saveTask(task);
-    if (!validation.success) {
-      throw new Error(`Validation failed: ${validation.output}`);
+    if (task.state === "VALIDATING") {
+      await requireTaskBranch();
+      const validation = await validateWorkspace(workspace);
+      task = { ...task, validation };
+      await saveTask(task);
+      if (!validation.success) {
+        throw new Error(`Validation failed: ${validation.output}`);
+      }
+      await advance("COMMITTING");
     }
-
-    await advance("COMMITTING");
-    task = { ...task, commitSha: await commitChanges(task, workspace) };
-    reportProgress(`Commit: ${task.commitSha}`);
-    await advance("PUSHING");
-    await pushBranch(task, workspace);
-    await advance("CREATING_PR");
+    if (task.state === "COMMITTING") {
+      task = { ...task, commitSha: await commitChanges(task, workspace) };
+      reportProgress(`Commit: ${task.commitSha}`);
+      await advance("PUSHING");
+    }
+    if (task.state === "PUSHING") {
+      await pushBranch(task, workspace);
+      await advance("CREATING_PR");
+    }
     task = {
       ...task,
-      pullRequestUrl: await createPullRequest(task, workspace),
+      pullRequestUrl: recovery
+        ? await createPullRequest(task, workspace, true)
+        : await createPullRequest(task, workspace),
     };
     reportProgress(`Pull request: ${task.pullRequestUrl}`);
     await advance("COMPLETED");

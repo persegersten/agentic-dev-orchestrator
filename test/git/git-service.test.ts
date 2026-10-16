@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   assertWorkspaceClean,
+  assertTaskCommit,
   commitChanges,
   createTaskBranch,
   getCurrentBranch,
@@ -161,6 +162,32 @@ describe("Git service", () => {
     await writeFile(join(workspace, "new.txt"), "edited\n");
     expect(await commitChanges(task, workspace)).not.toBe(sha);
     expect(await git("show", "HEAD:new.txt")).toBe("edited");
+  });
+
+  it("commits and pushes a summary larger than OS argument limits without losing its body", async () => {
+    const remote = join(directory, "large-origin.git");
+    await git("init", "--bare", remote);
+    await git("remote", "add", "origin", remote);
+    await onTaskBranch();
+    task.plan!.summary =
+      "Large change ".repeat(20_000) + "\n$(literal) `quotes` 😀";
+    await writeFile(join(workspace, "new.txt"), "new");
+    task.commitSha = await commitChanges(task, workspace);
+    const message = await git("log", "-1", "--format=%B");
+    expect(Array.from(message.split("\n")[0]!)).toHaveLength(72);
+    expect(message.split("\n\n").slice(1).join("\n\n")).toBe(
+      task.plan!.summary,
+    );
+    await assertTaskCommit(task, workspace);
+    await pushBranch(task, workspace);
+    expect(await git("rev-parse", "@{upstream}")).toBe(task.commitSha);
+    await expect(
+      assertTaskCommit({ ...task, commitSha: "wrong" }, workspace),
+    ).rejects.toThrow("HEAD");
+    await writeFile(join(workspace, "new.txt"), "dirty");
+    await expect(assertTaskCommit(task, workspace)).rejects.toThrow(
+      "local changes",
+    );
   });
 
   it("refuses empty commits and missing plan summaries", async () => {

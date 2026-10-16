@@ -2,6 +2,22 @@ import { execa } from "execa";
 
 import type { Task } from "../workflow/task.js";
 
+// Budget bytes conservatively so Unicode and Markdown indentation cannot exceed
+// the server's body limit. Full content remains in the persisted task record.
+function excerpt(value: string, budget: number): string {
+  if (Buffer.byteLength(value, "utf8") <= budget) return value;
+  const marker =
+    "\n\n[Truncated; full content is saved in the local task record.]";
+  let result = "";
+  let bytes = Buffer.byteLength(marker);
+  for (const char of value) {
+    bytes += Buffer.byteLength(char);
+    if (bytes > budget) break;
+    result += char;
+  }
+  return result + marker;
+}
+
 function required(value: string | undefined, field: string): string {
   if (!value?.trim()) throw new Error(`Task requires ${field} to create a PR`);
   return value;
@@ -18,7 +34,10 @@ export function buildPullRequestContent(task: Task): {
     throw new Error("Task requires a validation result to create a PR");
 
   // Indent output so Markdown fences or headings in logs remain literal text.
-  const output = (task.validation.output || "(No validation output)")
+  const output = excerpt(
+    task.validation.output || "(No validation output)",
+    12_000,
+  )
     .split("\n")
     .map((line) => `    ${line}`)
     .join("\n");
@@ -27,12 +46,12 @@ export function buildPullRequestContent(task: Task): {
     title: summary.trim().replace(/\s+/g, " ").slice(0, 200),
     body: [
       "## Original task instruction",
-      instruction,
+      excerpt(instruction, 12_000),
       "## Approved plan",
-      summary,
+      excerpt(summary, 12_000),
       "## Validation",
       task.validation.success ? "PASSED" : "FAILED",
-      output,
+      excerpt(output, 24_000),
       "## Commit SHA",
       commitSha,
     ].join("\n\n"),
@@ -43,6 +62,7 @@ export function buildPullRequestContent(task: Task): {
 export async function createPullRequest(
   task: Task,
   workspace: string,
+  recover = false,
 ): Promise<string> {
   const base = required(task.baseBranch, "baseBranch");
   const head = required(task.branchName, "branchName");
@@ -54,6 +74,46 @@ export async function createPullRequest(
     throw new Error("Task validation must pass before creating a PR");
 
   let stdout: string;
+  if (recover) {
+    // A previous request may have succeeded before its URL was saved.
+    const existing = await execa(
+      "gh",
+      [
+        "pr",
+        "list",
+        "--base",
+        base,
+        "--head",
+        head,
+        "--state",
+        "all",
+        "--json",
+        "url,headRefOid",
+      ],
+      {
+        cwd: workspace,
+        shell: false,
+        env: { GH_PROMPT_DISABLED: "1" },
+      },
+    );
+    const matches: { url: string; headRefOid: string }[] = JSON.parse(
+      existing.stdout,
+    );
+    if (matches.length > 0) {
+      if (
+        matches.length !== 1 ||
+        matches[0]!.headRefOid !== task.commitSha ||
+        !/^https:\/\/[^\s/]+\/[^\s/]+\/[^\s/]+\/pull\/[1-9]\d*$/.test(
+          matches[0]!.url,
+        )
+      ) {
+        throw new Error(
+          "Existing PR does not uniquely match the saved task commit; inspect GitHub before retrying",
+        );
+      }
+      return matches[0]!.url;
+    }
+  }
   try {
     const result = await execa(
       "gh",

@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { execa } from "execa";
 import { realpath } from "node:fs/promises";
 import { promisify } from "node:util";
 
@@ -106,7 +107,18 @@ export async function commitChanges(
     throw new Error("No changes to commit");
   }
   await git(workspace, ["add", "--all", "--", "."]);
-  await git(workspace, ["commit", "-m", message]);
+  // Keep the subject readable and send the full summary over stdin, avoiding
+  // OS argument limits and large commit output overflowing execFile buffers.
+  const subject = Array.from(message.split(/\r?\n/, 1)[0]!.trim())
+    .slice(0, 72)
+    .join("");
+  const commitMessage =
+    subject === message ? message : `${subject}\n\n${message}`;
+  await execa("git", ["commit", "--file", "-", "--cleanup=verbatim"], {
+    cwd: workspace,
+    input: `${commitMessage}\n`,
+    stdout: "ignore",
+  });
   return git(workspace, ["rev-parse", "--verify", "HEAD"]);
 }
 
@@ -116,4 +128,21 @@ export async function pushBranch(task: Task, workspace: string): Promise<void> {
   // An explicit destination avoids configured push refspecs targeting other branches.
   const ref = `refs/heads/${branchName}`;
   await git(workspace, ["push", "-u", "origin", `${ref}:${ref}`]);
+}
+
+/** Recovery must never publish a different commit than the persisted one. */
+export async function assertTaskCommit(
+  task: Task,
+  workspace: string,
+): Promise<void> {
+  await requireTaskBranch(task, workspace);
+  await assertWorkspaceClean(workspace);
+  if (
+    !task.commitSha ||
+    (await git(workspace, ["rev-parse", "HEAD"])) !== task.commitSha
+  ) {
+    throw new Error(
+      "Current HEAD does not match the saved task commit; inspect Git history before resuming",
+    );
+  }
 }

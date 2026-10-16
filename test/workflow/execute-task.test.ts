@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   getCurrentBranch: vi.fn(),
   getTaskBranchName: vi.fn(),
   assertWorkspaceClean: vi.fn(),
+  assertTaskCommit: vi.fn(),
   createTaskBranch: vi.fn(),
   runImplementer: vi.fn(),
   validateWorkspace: vi.fn(),
@@ -319,6 +320,42 @@ describe("resumeTask", () => {
     expect(mocks.commitChanges).toHaveBeenCalledOnce();
     expect(mocks.pushBranch).toHaveBeenCalledOnce();
     expect(mocks.createPullRequest).toHaveBeenCalledOnce();
+  });
+
+  it.each(["COMMITTING", "PUSHING", "CREATING_PR"] as const)(
+    "resumes %s without repeating earlier stages",
+    async (state) => {
+      input.failure!.state = state;
+      input.validation = { success: true, output: "saved full log" };
+      if (state !== "COMMITTING") input.commitSha = "abc123";
+      const result = await resumeTask(input.id, workspace);
+      expect(result.state).toBe("COMPLETED");
+      expect(mocks.runImplementer).not.toHaveBeenCalled();
+      expect(mocks.validateWorkspace).not.toHaveBeenCalled();
+      expect(mocks.commitChanges).toHaveBeenCalledTimes(
+        state === "COMMITTING" ? 1 : 0,
+      );
+      expect(mocks.pushBranch).toHaveBeenCalledTimes(
+        state === "CREATING_PR" ? 0 : 1,
+      );
+      expect(mocks.createPullRequest).toHaveBeenCalledWith(
+        expect.anything(),
+        workspace,
+        true,
+      );
+    },
+  );
+
+  it("rejects publication recovery when HEAD changed before writing task state", async () => {
+    input.failure!.state = "PUSHING";
+    input.validation = { success: true, output: "passed" };
+    input.commitSha = "abc123";
+    mocks.assertTaskCommit.mockRejectedValue(new Error("HEAD changed"));
+    await expect(resumeTask(input.id, workspace)).rejects.toThrow(
+      "HEAD changed",
+    );
+    expect(mocks.saveTask).not.toHaveBeenCalled();
+    expect(mocks.pushBranch).not.toHaveBeenCalled();
   });
 
   it("supports the existing legacy implementation failure without failure/workspace metadata", async () => {

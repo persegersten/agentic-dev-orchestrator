@@ -78,8 +78,18 @@ inspect existing changes before continuing. Validation resumes rerun validation
 without repeating implementation; fix any failing tests before retrying validation.
 New executions persist the canonical workspace path and failure step/message/time.
 Resume rejects a different saved workspace, wrong branch, invalid plan/thread,
-completed tasks, and failures during commit, push, or PR creation. Inspect those
-later failures manually because Git/GitHub may already have completed an operation.
+and completed tasks. Commit recovery requires saved successful validation and
+pending changes. Push and PR recovery require a clean workspace with HEAD matching
+the saved commit; they skip implementation and validation. PR recovery checks for
+an existing PR with the same branches and commit before creating one. Push rejection
+due to diverged history still requires manual inspection; recovery never force-pushes.
+If a commit succeeded before its SHA was saved, inspect Git history manually rather
+than retrying implementation or creating another commit.
+
+Commit messages use a subject of at most 72 Unicode characters and preserve longer
+summaries in the body, sent to Git through stdin. PR descriptions include bounded
+excerpts of the instruction, plan, and validation log, with explicit truncation
+markers. Full content remains in `.agent/tasks/<task-id>.json`.
 
 Older failed tasks without failure metadata can resume implementation when their
 base/task branch metadata remains and no validation, commit, or PR metadata exists.

@@ -54,6 +54,56 @@ describe("pull request service", () => {
     );
   });
 
+  it("bounds the complete body even with huge Unicode fields and many log lines", () => {
+    const input = task();
+    input.instruction = "😀".repeat(100_000);
+    input.plan!.summary = "plan".repeat(100_000);
+    input.validation!.output = "\n".repeat(100_000);
+    const before = structuredClone(input);
+    const { body } = buildPullRequestContent(input);
+    expect(Buffer.byteLength(body)).toBeLessThan(65_536);
+    expect(body).toContain("Truncated");
+    expect(body).toContain("PASSED");
+    expect(body).toContain(input.commitSha);
+    expect(input).toEqual(before);
+  });
+
+  it("reuses an existing PR after an interrupted create request", async () => {
+    const input = task();
+    command.mockResolvedValueOnce({
+      stdout: JSON.stringify([
+        {
+          url: "https://github.com/example/repo/pull/42",
+          headRefOid: input.commitSha,
+        },
+      ]),
+    });
+    expect(await createPullRequest(input, "/workspace", true)).toBe(
+      "https://github.com/example/repo/pull/42",
+    );
+    expect(command).toHaveBeenCalledOnce();
+  });
+
+  it("refuses to reuse a PR for a different commit", async () => {
+    command.mockResolvedValueOnce({
+      stdout: JSON.stringify([
+        { url: "https://github.com/example/repo/pull/42", headRefOid: "wrong" },
+      ]),
+    });
+    await expect(createPullRequest(task(), "/workspace", true)).rejects.toThrow(
+      "saved task commit",
+    );
+    expect(command).toHaveBeenCalledOnce();
+  });
+
+  it("creates a PR on recovery when no existing PR is found", async () => {
+    command.mockResolvedValueOnce({ stdout: "[]" });
+    await expect(
+      createPullRequest(task(), "/workspace", true),
+    ).resolves.toContain("/pull/42");
+    expect(command).toHaveBeenCalledTimes(2);
+  });
+
   it("creates only a PR with explicit persisted branches and body on stdin", async () => {
     const input = task();
     const before = structuredClone(input);
